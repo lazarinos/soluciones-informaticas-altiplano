@@ -23,5 +23,5 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: d0525359e9d5b79e9137bf2370a6c06e
           command: pages deploy dist --project-name=soluciones-informaticas-altiplano --branch=${{ github.ref_name }}
