@@ -1,13 +1,14 @@
 /**
- * FX — GSAP + ScrollTrigger. Mejora progresiva: sin GSAP, el contenido queda visible.
+ * Efectos con GSAP + ScrollTrigger. Mejora progresiva: sin GSAP o con "reducir movimiento",
+ * el contenido queda visible y estático. La entrada del hero se hace en CSS (.fade-up).
  */
 (function () {
   'use strict';
 
-  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var fine = window.matchMedia('(hover:hover) and (pointer:fine)').matches;
+  var finePointer = matchMedia('(hover:hover) and (pointer:fine)').matches;
+  var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Foco de luz bajo el cursor (no requiere GSAP)
+  // Foco de luz bajo el cursor (solo CSS vars; no requiere GSAP)
   document.querySelectorAll('.spot').forEach(function (el) {
     el.addEventListener('pointermove', function (e) {
       var r = el.getBoundingClientRect();
@@ -16,122 +17,87 @@
     });
   });
 
-  // Barra de progreso de scroll
-  var bar = document.getElementById('progress');
-  function progress() {
-    var h = document.documentElement.scrollHeight - innerHeight;
-    if (bar) bar.style.transform = 'scaleX(' + (h > 0 ? scrollY / h : 0) + ')';
-  }
-  addEventListener('scroll', progress, { passive: true });
-  progress();
+  if (!window.gsap || !window.ScrollTrigger || reduced) return;
+  var gsap = window.gsap, ScrollTrigger = window.ScrollTrigger;
+  gsap.registerPlugin(ScrollTrigger);
 
-  if (!window.gsap || reduced) return;
-  var gsap = window.gsap;
-  if (window.ScrollTrigger) gsap.registerPlugin(window.ScrollTrigger);
+  var EASE = 'expo.out';
+  var once = function (trigger, start) { return { trigger: trigger, start: start || 'top 85%', once: true }; };
 
-  var E = 'expo.out';
+  // ── Hero: bloques del rack y paralaje con el cursor ──
+  gsap.from('.unit', { opacity: 0, duration: 1.1, stagger: 0.14, delay: 0.4, ease: EASE });
+  gsap.from('.unit__bar i', { scaleX: 0, duration: 1.4, stagger: 0.14, delay: 1, ease: EASE });
+  gsap.from('.hero__stats', { y: 30, opacity: 0, duration: 0.9, delay: 1, ease: EASE });
 
-  // ── Hero: titular por líneas enmascaradas + bloques del rack ──
-  var tl = gsap.timeline({ defaults: { ease: E } });
-  tl.from('.nav__pill', { y: -30, opacity: 0, duration: 0.9 })
-    .from('.unit', {
-      x: 120, y: -40, rotateY: -35, opacity: 0, duration: 1.2, stagger: 0.14, ease: 'back.out(1.4)'
-    }, 0.4)
-    .from('.unit__bar i', { scaleX: 0, duration: 1.4, stagger: 0.14 }, 1)
-    .from('.hero__stats', { y: 30, opacity: 0, duration: 0.9 }, 1);
-
-  // Rack: flotación + paralaje con el cursor
-  gsap.utils.toArray('.unit').forEach(function (u, i) {
-    gsap.to(u, { y: '+=6', duration: 2.6 + i * 0.3, ease: 'sine.inOut', yoyo: true, repeat: -1, delay: 1.6 });
-  });
   var rack = document.getElementById('rack');
-  if (rack && fine) {
-    var rx = gsap.quickTo(rack, 'rotationY', { duration: 0.8, ease: 'power3' });
-    var ry = gsap.quickTo(rack, 'rotationX', { duration: 0.8, ease: 'power3' });
+  if (rack && finePointer) {
+    var rotY = gsap.quickTo(rack, 'rotationY', { duration: 0.8, ease: 'power3' });
+    var rotX = gsap.quickTo(rack, 'rotationX', { duration: 0.8, ease: 'power3' });
     addEventListener('pointermove', function (e) {
-      rx((e.clientX / innerWidth - 0.5) * 10);
-      ry(-(e.clientY / innerHeight - 0.5) * 8);
-    });
+      if (scrollY > innerHeight) return;
+      rotY((e.clientX / innerWidth - 0.5) * 10);
+      rotX(-(e.clientY / innerHeight - 0.5) * 8);
+    }, { passive: true });
   }
 
-  if (!window.ScrollTrigger) return;
-  var ST = { start: 'top 85%', once: true };
-
-  // Reveals al entrar en vista
+  // ── Revelados al entrar en vista ──
   gsap.utils.toArray('[data-reveal]').forEach(function (el) {
-    if (el.closest('.hero')) return;
-    gsap.from(el, { y: 36, opacity: 0, duration: 1, ease: E, scrollTrigger: Object.assign({ trigger: el }, ST) });
+    gsap.from(el, { y: 36, opacity: 0, duration: 1, ease: EASE, scrollTrigger: once(el) });
   });
 
-  // Bloques en cascada (mosaico que se ensambla)
   ['.about-grid', '.metrics'].forEach(function (sel) {
     var wrap = document.querySelector(sel);
     if (!wrap) return;
-    gsap.from(wrap.querySelectorAll('[data-stagger]'), {
-      y: 70, scale: 0.92, opacity: 0, rotateX: -12, duration: 1.1, ease: E, stagger: 0.12,
-      scrollTrigger: { trigger: wrap, start: 'top 82%', once: true }
+    gsap.from(wrap.children, {
+      y: 70, scale: 0.92, opacity: 0, duration: 1.1, ease: EASE, stagger: 0.12,
+      scrollTrigger: once(wrap, 'top 82%')
     });
   });
 
-  // Contadores
+  // ── Contadores ──
   document.querySelectorAll('[data-count]').forEach(function (el) {
-    var end = parseFloat(el.dataset.count);
-    var dec = parseInt(el.dataset.dec || '0', 10);
-    var suffix = el.dataset.suffix || '';
-    var o = { v: 0 };
-    function fmt(v) {
-      var s = v.toFixed(dec);
-      return (end >= 1000 ? Number(s).toLocaleString('en-US') : s) + suffix;
+    var end = parseFloat(el.dataset.count), dec = parseInt(el.dataset.dec || '0', 10), suffix = el.dataset.suffix || '';
+    var state = { v: 0 };
+    function render(v) {
+      var n = v.toFixed(dec);
+      el.textContent = (end >= 1000 ? Number(n).toLocaleString('en-US') : n) + suffix;
     }
-    gsap.to(o, {
+    gsap.to(state, {
       v: end, duration: 2, ease: 'power2.out',
-      scrollTrigger: { trigger: el, start: 'top 92%', once: true },
-      onUpdate: function () { el.textContent = fmt(o.v); },
-      onComplete: function () { el.textContent = fmt(end); }
+      scrollTrigger: once(el, 'top 92%'),
+      onUpdate: function () { render(state.v); },
+      onComplete: function () { render(end); }
     });
   });
 
-  // Tarjetas apiladas: la anterior se encoge y se oscurece al llegar la siguiente
-  if (innerWidth > 700) {
+  // ── Tarjetas apiladas: la anterior se encoge y se oscurece (sin transparencia) ──
+  gsap.matchMedia().add('(min-width:701px) and (min-height:701px)', function () {
     var cards = gsap.utils.toArray('.card');
     cards.forEach(function (card, i) {
-      var next = cards[i + 1];
-      if (!next) return;
+      if (!cards[i + 1]) return;
       gsap.to(card, {
-        scale: 0.95, filter: 'brightness(0.5)', ease: 'none',
-        scrollTrigger: { trigger: next, start: 'top 75%', end: 'top 20%', scrub: true }
+        scale: 0.95, '--dim': 0.5, ease: 'none',
+        scrollTrigger: { trigger: cards[i + 1], start: 'top 75%', end: 'top 20%', scrub: true }
       });
     });
-  }
-
-  // Marquee reacciona a la velocidad de scroll
-  var track = document.querySelector('.marquee__track');
-  if (track) {
-    window.ScrollTrigger.create({
-      onUpdate: function (self) {
-        var v = Math.min(Math.abs(self.getVelocity()) / 400, 6);
-        track.style.animationDuration = Math.max(10, 38 - v * 4) + 's';
-      }
-    });
-  }
-
-  // Footer: palabra gigante sube al aparecer
-  gsap.from('.site-footer__word', {
-    yPercent: 30, opacity: 0, duration: 1.4, ease: E,
-    scrollTrigger: { trigger: '.site-footer', start: 'top 85%', once: true }
   });
 
-  // Botones magnéticos
-  if (fine) {
-    document.querySelectorAll('.magnetic').forEach(function (b) {
-      var qx = gsap.quickTo(b, 'x', { duration: 0.5, ease: 'power3' });
-      var qy = gsap.quickTo(b, 'y', { duration: 0.5, ease: 'power3' });
-      b.addEventListener('pointermove', function (e) {
-        var r = b.getBoundingClientRect();
+  // ── Footer ──
+  gsap.from('.site-footer__word', { yPercent: 30, opacity: 0, duration: 1.4, ease: EASE, scrollTrigger: once('.site-footer') });
+
+  // ── Botones magnéticos (rect cacheado al entrar, no en cada movimiento) ──
+  if (finePointer) {
+    document.querySelectorAll('.magnetic').forEach(function (btn) {
+      var qx = gsap.quickTo(btn, 'x', { duration: 0.5, ease: 'power3' });
+      var qy = gsap.quickTo(btn, 'y', { duration: 0.5, ease: 'power3' });
+      var r;
+      btn.addEventListener('pointerenter', function () { r = btn.getBoundingClientRect(); });
+      btn.addEventListener('pointermove', function (e) {
+        if (!r) return;
         qx((e.clientX - r.left - r.width / 2) * 0.25);
         qy((e.clientY - r.top - r.height / 2) * 0.35);
       });
-      b.addEventListener('pointerleave', function () { qx(0); qy(0); });
+      btn.addEventListener('pointerleave', function () { qx(0); qy(0); });
     });
   }
 })();

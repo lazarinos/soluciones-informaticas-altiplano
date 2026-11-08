@@ -1,213 +1,138 @@
 /**
  * Soluciones Informáticas del Altiplano
- * Entrance choreography, live clock, form dispatch
+ * Reloj, estado del nav y barra de progreso, menú móvil, preselección de servicio y formulario.
  */
-
 (function () {
   'use strict';
 
-  // ── LIVE CLOCK (Juliaca / PET / UTC-5) ──
+  var $ = function (id) { return document.getElementById(id); };
+  var WA_NUMBER = '51951847320';
+
+  // ── Reloj de Juliaca (UTC-5) ──
   function initClock() {
-    const el = document.getElementById('clock');
+    var el = $('clock');
     if (!el) return;
-
-    function tick() {
-      const now = new Date();
-      try {
-        el.textContent = new Intl.DateTimeFormat('es-PE', {
-          timeZone: 'America/Lima',
-          hour: '2-digit', minute: '2-digit',
-          hour12: false
-        }).format(now) + ' Juliaca';
-      } catch {
-        const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-        const pet = new Date(utc - 5 * 3600000);
-        el.textContent = String(pet.getHours()).padStart(2, '0') + ':' +
-          String(pet.getMinutes()).padStart(2, '0') + ' Juliaca';
-      }
-    }
-
+    var fmt = new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', hour: '2-digit', minute: '2-digit', hour12: false });
+    function tick() { el.textContent = fmt.format(new Date()) + ' Juliaca'; }
     tick();
     setInterval(tick, 10000);
   }
 
-  // ── NAV SCROLL STATE ──
-  function initNavScroll() {
-    const nav = document.getElementById('nav');
-    if (!nav) return;
-
-    let ticking = false;
-    function onScroll() {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          nav.classList.toggle('scrolled', window.scrollY > 60);
-          ticking = false;
-        });
-        ticking = true;
-      }
+  // ── Scroll: fondo del nav y barra de progreso (un solo listener, 1 lectura por frame) ──
+  function initScroll() {
+    var nav = $('nav'), bar = $('progress');
+    var max = 1, queued = false;
+    function measure() { max = Math.max(1, document.documentElement.scrollHeight - innerHeight); }
+    function update() {
+      queued = false;
+      if (nav) nav.classList.toggle('is-stuck', scrollY > 60);
+      if (bar) bar.style.transform = 'scaleX(' + Math.min(1, scrollY / max) + ')';
     }
-
-    window.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
+    addEventListener('scroll', function () { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
+    addEventListener('resize', function () { measure(); update(); });
+    addEventListener('load', measure);
+    measure(); update();
   }
 
-  // ── MOBILE MENU ──
+  // ── Menú móvil ──
   function initMobile() {
-    const burger = document.getElementById('burger');
-    const menu = document.getElementById('mobileMenu');
+    var burger = $('burger'), menu = $('mobileMenu');
     if (!burger || !menu) return;
 
-    function toggle() {
-      const isOpen = menu.classList.toggle('open');
-      burger.classList.toggle('active', isOpen);
-      document.body.style.overflow = isOpen ? 'hidden' : '';
+    function setOpen(open) {
+      menu.classList.toggle('open', open);
+      menu.inert = !open;
+      burger.classList.toggle('active', open);
+      burger.setAttribute('aria-expanded', String(open));
+      burger.setAttribute('aria-label', open ? 'Cerrar menú' : 'Abrir menú');
+      document.body.style.overflow = open ? 'hidden' : '';
+      if (open) menu.querySelector('a').focus(); else if (menu.contains(document.activeElement)) burger.focus();
     }
 
-    function close() {
-      menu.classList.remove('open');
-      burger.classList.remove('active');
-      document.body.style.overflow = '';
-    }
-
-    burger.addEventListener('click', toggle);
-    menu.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+    burger.addEventListener('click', function () { setOpen(!menu.classList.contains('open')); });
+    menu.addEventListener('click', function (e) { if (e.target.closest('a')) setOpen(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && menu.classList.contains('open')) setOpen(false); });
   }
 
-  // ── ENTRANCE CHOREOGRAPHY ──
-  function initAnimations() {
-    const elements = document.querySelectorAll('.anim-in');
-
-    // Force rest state visible after 3s regardless (craft rule)
-    const fallbackTimer = setTimeout(() => {
-      elements.forEach(el => el.classList.add('is-in'));
-    }, 3000);
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const el = entry.target;
-          const delay = parseInt(el.dataset.delay || '0', 10) * 120;
-          setTimeout(() => el.classList.add('is-in'), delay);
-          observer.unobserve(el);
-        }
-      });
-    }, {
-      threshold: 0.12,
-      rootMargin: '0px 0px -40px 0px'
-    });
-
-    elements.forEach(el => observer.observe(el));
-  }
-
-  // ── SERVICE LINK PRE-FILL ──
+  // ── Botones "Solicitar cotización" preseleccionan el servicio ──
   function initServiceLinks() {
-    const select = document.getElementById('fservice');
+    var select = $('fservice');
     if (!select) return;
-
-    document.querySelectorAll('.card__link').forEach(link => {
+    document.querySelectorAll('.card__link').forEach(function (link) {
       link.addEventListener('click', function () {
-        const service = this.dataset.service;
-        if (!service) return;
-        for (let i = 0; i < select.options.length; i++) {
-          if (select.options[i].text.toLowerCase().includes(service.toLowerCase())) {
-            select.selectedIndex = i;
-            break;
-          }
+        var wanted = (link.dataset.service || '').toLowerCase();
+        for (var i = 0; i < select.options.length; i++) {
+          if (select.options[i].text.toLowerCase().indexOf(wanted) !== -1) { select.selectedIndex = i; break; }
         }
       });
     });
   }
 
-  // ── CONTACT FORM ──
+  // ── Formulario: valida y prepara el mensaje para WhatsApp ──
   function initForm() {
-    const form = document.getElementById('contactForm');
-    const status = document.getElementById('formStatus');
+    var form = $('contactForm'), status = $('formStatus');
     if (!form || !status) return;
+
+    var f = { name: $('fname'), company: $('fcompany'), phone: $('fphone'), email: $('femail'), service: $('fservice'), msg: $('fmsg') };
+    var rules = [
+      [f.name,    function (v) { return v.length >= 3; },                          'err-name',    'Ingrese un nombre válido.'],
+      [f.phone,   function (v) { return /^[+\d\s-]{7,15}$/.test(v); },             'err-phone',   'Ingrese un teléfono válido.'],
+      [f.email,   function (v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); },   'err-email',   'Ingrese un correo válido.'],
+      [f.service, function (v) { return v !== ''; },                               'err-service', 'Seleccione un servicio.'],
+      [f.msg,     function (v) { return v.length >= 10; },                         'err-msg',     'Describa su proyecto (mín. 10 caracteres).']
+    ];
+    rules.forEach(function (r) { r[0].setAttribute('aria-describedby', r[2]); });
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-
-      // Clear errors
-      document.querySelectorAll('.form-error').forEach(el => el.textContent = '');
       status.className = 'form-status';
       status.textContent = '';
 
-      const name = document.getElementById('fname');
-      const company = document.getElementById('fcompany');
-      const phone = document.getElementById('fphone');
-      const email = document.getElementById('femail');
-      const service = document.getElementById('fservice');
-      const msg = document.getElementById('fmsg');
+      var firstInvalid = null;
+      rules.forEach(function (r) {
+        var ok = r[1](r[0].value.trim());
+        $(r[2]).textContent = ok ? '' : r[3];
+        r[0].setAttribute('aria-invalid', String(!ok));
+        if (!ok && !firstInvalid) firstInvalid = r[0];
+      });
 
-      let valid = true;
-
-      if (!name.value.trim() || name.value.trim().length < 3) {
-        document.getElementById('err-name').textContent = 'Ingrese un nombre válido.';
-        valid = false;
-      }
-
-      if (!phone.value.trim() || !/^[+\d\s-]{7,15}$/.test(phone.value.trim())) {
-        document.getElementById('err-phone').textContent = 'Ingrese un teléfono válido.';
-        valid = false;
-      }
-
-      if (!email.value.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) {
-        document.getElementById('err-email').textContent = 'Ingrese un correo válido.';
-        valid = false;
-      }
-
-      if (!service.value) {
-        document.getElementById('err-service').textContent = 'Seleccione un servicio.';
-        valid = false;
-      }
-
-      if (!msg.value.trim() || msg.value.trim().length < 10) {
-        document.getElementById('err-msg').textContent = 'Describa su proyecto (mín. 10 caracteres).';
-        valid = false;
-      }
-
-      if (!valid) {
+      if (firstInvalid) {
         status.className = 'form-status error';
         status.textContent = 'Revise los campos marcados.';
+        firstInvalid.focus();
         return;
       }
 
-      const waText =
-`*REQUERIMIENTO — SOLUCIONES INFORMÁTICAS DEL ALTIPLANO*
-────────────────────────
-*Contacto:* ${name.value.trim()}
-*Empresa:* ${company.value.trim() || 'No especificada'}
-*Teléfono:* ${phone.value.trim()}
-*Correo:* ${email.value.trim()}
-*Servicio:* ${service.value}
-*Detalle:*
-${msg.value.trim()}
-────────────────────────
-_Portal corporativo · Juliaca, 3,824 m s. n. m._`;
+      var text =
+        '*REQUERIMIENTO — SOLUCIONES INFORMÁTICAS DEL ALTIPLANO*\n' +
+        '────────────────────────\n' +
+        '*Contacto:* ' + f.name.value.trim() + '\n' +
+        '*Empresa:* ' + (f.company.value.trim() || 'No especificada') + '\n' +
+        '*Teléfono:* ' + f.phone.value.trim() + '\n' +
+        '*Correo:* ' + f.email.value.trim() + '\n' +
+        '*Servicio:* ' + f.service.value + '\n' +
+        '*Detalle:*\n' + f.msg.value.trim() + '\n' +
+        '────────────────────────\n' +
+        '_Portal corporativo · Juliaca, 3,824 m s. n. m._';
 
-      const waUrl = `https://wa.me/51951847320?text=${encodeURIComponent(waText)}`;
+      var link = document.createElement('a');
+      link.className = 'btn btn--light';
+      link.href = 'https://wa.me/' + WA_NUMBER + '?text=' + encodeURIComponent(text);
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Continuar a WhatsApp ↗';
 
       status.className = 'form-status success';
-      status.innerHTML = `
-        <strong>Requerimiento validado.</strong> Se preparó la transmisión.<br><br>
-        <a href="${waUrl}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;background:#fff;color:#0a0a0a;padding:10px 20px;border-radius:999px;font-size:14px;font-weight:500;">
-          Continuar a WhatsApp ↗
-        </a>
-      `;
-
-      msg.value = '';
+      var strong = document.createElement('strong');
+      strong.textContent = 'Requerimiento validado.';
+      status.append(strong, ' Se preparó el mensaje.', document.createElement('br'), link);
+      f.msg.value = '';
     });
   }
 
-  // ── INIT ──
-  document.addEventListener('DOMContentLoaded', () => {
-    initClock();
-    initNavScroll();
-    initMobile();
-    initServiceLinks();
-    initForm();
-  });
+  initClock();
+  initScroll();
+  initMobile();
+  initServiceLinks();
+  initForm();
 })();
-// Nav: fondo al hacer scroll
-(function(){var n=document.getElementById('nav');if(!n)return;function f(){n.classList.toggle('is-stuck',scrollY>60)}addEventListener('scroll',f,{passive:true});f();})();
