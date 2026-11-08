@@ -1,0 +1,27 @@
+name: Deploy a Cloudflare Pages
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar carpeta publica
+        run: |
+          mkdir dist
+          cp index.html dist/
+          cp -r css js dist/
+
+      - name: Desplegar
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=soluciones-informaticas-altiplano --branch=${{ github.ref_name }}
